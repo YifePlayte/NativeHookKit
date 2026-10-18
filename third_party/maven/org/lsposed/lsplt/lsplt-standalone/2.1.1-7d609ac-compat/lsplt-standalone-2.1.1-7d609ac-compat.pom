@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+  <groupId>org.lsposed.lsplt</groupId>
+  <artifactId>lsplt-standalone</artifactId>
+  <version>2.1.1-7d609ac-compat</version>
+  <packaging>aar</packaging>
+  <name>LSPlt (pinned 16KB build, legacy Scan ABI)</name>
+  <description>LSPlt shared AAR built from LSPosed/LSPlt 7d609ac with a legacy MapInfo::Scan() overload</description>
+  <url>https://github.com/LSPosed/LSPlt</url>
+  <licenses>
+    <license>
+      <name>GNU Lesser General Public License v3.0</name>
+      <url>https://github.com/LSPosed/LSPlt/blob/master/LICENSE</url>
+    </license>
+  </licenses>
+</project>

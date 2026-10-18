@@ -1,0 +1,29 @@
+diff --git a/lsplt/src/main/jni/include/lsplt.hpp b/lsplt/src/main/jni/include/lsplt.hpp
+index 8c6868b..87f3ab1 100644
+--- a/lsplt/src/main/jni/include/lsplt.hpp
++++ b/lsplt/src/main/jni/include/lsplt.hpp
+@@ -40,7 +40,8 @@ struct MapInfo {
+     /// This is useful to find out the inode of the library to hook.
+     /// \param[in] pid The process id to scan. This is "self" by default.
+     /// \return A list of \ref MapInfo entries.
+-    [[maybe_unused, gnu::visibility("default")]] static std::vector<MapInfo> Scan(std::string_view pid = "self");
++    [[maybe_unused, gnu::visibility("default")]] static std::vector<MapInfo> Scan();
++    [[maybe_unused, gnu::visibility("default")]] static std::vector<MapInfo> Scan(std::string_view pid);
+ };
+ 
+ /// \brief Register a hook to a function by inode. For so within an archive, you should use
+diff --git a/lsplt/src/main/jni/lsplt.cc b/lsplt/src/main/jni/lsplt.cc
+index 954e920..06a86e8 100644
+--- a/lsplt/src/main/jni/lsplt.cc
++++ b/lsplt/src/main/jni/lsplt.cc
+@@ -249,6 +249,10 @@ HookInfos hook_info;
+ }  // namespace
+ 
+ namespace lsplt::inline v2 {
++[[maybe_unused]] std::vector<MapInfo> MapInfo::Scan() {
++    return Scan(std::string_view{"self"});
++}
++
+ [[maybe_unused]] std::vector<MapInfo> MapInfo::Scan(std::string_view pid) {
+     constexpr static auto kPermLength = 5;
+     constexpr static auto kMapEntry = 7;

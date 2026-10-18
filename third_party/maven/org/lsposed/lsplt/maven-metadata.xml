@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<metadata>
+  <groupId>org.lsposed.lsplt</groupId>
+  <artifactId>lsplt-standalone</artifactId>
+  <versioning>
+    <latest>2.1.1-7d609ac-compat</latest>
+    <release>2.1.1-7d609ac-compat</release>
+    <versions>
+      <version>2.1.1-7d609ac</version>
+      <version>2.1.1-7d609ac-static</version>
+      <version>2.1.1-7d609ac-compat</version>
+    </versions>
+    <lastUpdated>20261019000000</lastUpdated>
+  </versioning>
+</metadata>
