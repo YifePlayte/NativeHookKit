@@ -35,6 +35,12 @@ src/*.cpp
 
 - LSPlt is the preferred madvise backend. The guard calls the backup returned by
   LSPlt, so module guards form a GOT chain.
+- The guard follows the image the launcher build actually uses. 7751+ runs the
+  Dart payload on `libhyper_os_flutter.so`; 7748 maps it straight from the APK
+  and issues `MADV_DONTNEED` through the Rust mmap crates
+  (`libmemmap2.dylib.so`, `libnix.dylib.so`). Hook every candidate that is
+  mapped, keep one LSPlt backup per slot, and stay retryable while none is
+  mapped.
 - Never install an inline hook on libc `madvise` in a new module.
 - Register every patched page with `nhk::ProtectHookRange` before writing.
 - The module native `.so` needs `DT_RUNPATH=$ORIGIN` so LSPosed can resolve

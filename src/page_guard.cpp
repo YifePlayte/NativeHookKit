@@ -58,7 +58,7 @@ constexpr size_t kMaxProtectedPages = 128u;
 
 // 0 = idle, 1 = installing, 2 = installed, 3 = failed.
 uint32_t g_guard_state = 0u;
-MadviseFn g_original_madvise = nullptr;
+MadviseFn g_inline_backup = nullptr;
 uintptr_t g_protected_pages[kMaxProtectedPages]{};
 size_t g_protected_page_count = 0u;
 uint32_t g_protected_page_lock = 0u;
@@ -89,8 +89,8 @@ bool AddProtectedPage(uintptr_t address) {
     return true;
 }
 
-int GuardedMadvise(void* address, size_t length, int advice) {
-    MadviseFn original = __atomic_load_n(&g_original_madvise, __ATOMIC_ACQUIRE);
+int GuardedMadviseWith(MadviseFn original, void* address, size_t length,
+                       int advice) {
     if (original == nullptr) {
         errno = ENOSYS;
         return -1;
@@ -141,6 +141,46 @@ int GuardedMadvise(void* address, size_t length, int advice) {
     return 0;
 }
 
+// Libraries that may issue madvise(MADV_DONTNEED) against an XYRE app image.
+//
+// The 7751+ launcher runs its Dart payload on libhyper_os_flutter.so and the
+// cleanup comes from that image.  The 7748 launcher maps the Dart payload
+// straight from the APK instead; libhyper_os_flutter.so is only inherited as a
+// stale data segment from the USAP parent, and the live cleanup goes through
+// the Rust mmap crates.  Hook every candidate that is really mapped so the
+// guard follows whichever runtime the launcher build uses.  Each slot keeps
+// its own LSPlt backup because a sibling module may have hooked the same slot.
+constexpr size_t kMaxGuardSlots = 4u;
+constexpr const char* kMadviseGuardCandidates[kMaxGuardSlots] = {
+    "libhyper_os_flutter.so",
+    "libmemmap2.dylib.so",
+    "libnix.dylib.so",
+};
+
+MadviseFn g_slot_backup[kMaxGuardSlots]{};
+
+template <size_t Slot>
+int GuardedMadviseSlot(void* address, size_t length, int advice) {
+    return GuardedMadviseWith(
+            __atomic_load_n(&g_slot_backup[Slot], __ATOMIC_ACQUIRE),
+            address, length, advice);
+}
+
+using GuardFn = int (*)(void*, size_t, int);
+
+constexpr GuardFn kSlotWrappers[kMaxGuardSlots] = {
+    &GuardedMadviseSlot<0>,
+    &GuardedMadviseSlot<1>,
+    &GuardedMadviseSlot<2>,
+    &GuardedMadviseSlot<3>,
+};
+
+int GuardedMadviseInline(void* address, size_t length, int advice) {
+    return GuardedMadviseWith(
+            __atomic_load_n(&g_inline_backup, __ATOMIC_ACQUIRE),
+            address, length, advice);
+}
+
 bool InstallInlineMadviseFallback() {
     void* target = dlsym(RTLD_DEFAULT, "madvise");
     if (target == nullptr) {
@@ -148,13 +188,13 @@ bool InstallInlineMadviseFallback() {
         return false;
     }
     void* backup = nullptr;
-    if (InstallInlineHook(target, reinterpret_cast<void*>(GuardedMadvise),
+    if (InstallInlineHook(target, reinterpret_cast<void*>(GuardedMadviseInline),
                           &backup) != kHookSuccess ||
             backup == nullptr) {
         NHK_LOGE("madvise guard: inline fallback unavailable");
         return false;
     }
-    __atomic_store_n(&g_original_madvise, reinterpret_cast<MadviseFn>(backup),
+    __atomic_store_n(&g_inline_backup, reinterpret_cast<MadviseFn>(backup),
                      __ATOMIC_RELEASE);
     NHK_LOGW("madvise guard: installed inline fallback");
     return true;
@@ -230,34 +270,71 @@ bool FindRuntimeIdentity(const char* name, dev_t* device, ino_t* inode) {
 }
 
 bool InstallLspltMadviseHook() {
-    static constexpr char kRuntimeName[] = "libhyper_os_flutter.so";
-    dev_t device = 0;
-    ino_t inode = 0;
-    if (!FindRuntimeIdentity(kRuntimeName, &device, &inode)) {
-        __atomic_store_n(&g_runtime_missing, 1u, __ATOMIC_RELEASE);
-        NHK_LOGW("madvise guard: %s not mapped yet", kRuntimeName);
+    size_t queued = 0u;
+    bool candidate_present = false;
+    for (size_t slot = 0u; slot < kMaxGuardSlots; ++slot) {
+        const char* name = kMadviseGuardCandidates[slot];
+        dev_t device = 0;
+        ino_t inode = 0;
+        if (name == nullptr || !FindRuntimeIdentity(name, &device, &inode)) {
+            continue;
+        }
+        candidate_present = true;
+        // LSPlt stores this pointer and assigns the backup during CommitHook,
+        // so it must reference static storage, not a stack local.
+        if (!lsplt::RegisterHook(
+                    device, inode, "madvise",
+                    reinterpret_cast<void*>(kSlotWrappers[slot]),
+                    reinterpret_cast<void**>(&g_slot_backup[slot]))) {
+            NHK_LOGE("madvise guard: LSPlt register failed for %s", name);
+            continue;
+        }
+        NHK_LOGW("madvise guard: LSPlt slot queued for %s", name);
+        ++queued;
+    }
+    if (queued == 0u) {
+        if (!candidate_present) {
+            // No candidate image is mapped yet.  Leave the guard retryable so
+            // a later library-load callback can install it.
+            __atomic_store_n(&g_runtime_missing, 1u, __ATOMIC_RELEASE);
+            NHK_LOGW("madvise guard: no runtime image mapped yet");
+        } else {
+            NHK_LOGE("madvise guard: no madvise slot could be queued");
+        }
+        return false;
+    }
+    if (!lsplt::CommitHook()) {
+        NHK_LOGE("madvise guard: LSPlt commit failed");
+        return false;
+    }
+    size_t hooked = 0u;
+    for (size_t slot = 0u; slot < kMaxGuardSlots; ++slot) {
+        const MadviseFn backup =
+                __atomic_load_n(&g_slot_backup[slot], __ATOMIC_ACQUIRE);
+        if (backup != nullptr &&
+                backup != reinterpret_cast<MadviseFn>(kSlotWrappers[slot])) {
+            ++hooked;
+        }
+    }
+    if (hooked == 0u) {
+        NHK_LOGE("madvise guard: LSPlt commit hooked no slot");
         return false;
     }
     __atomic_store_n(&g_runtime_missing, 0u, __ATOMIC_RELEASE);
-
-    void* backup = nullptr;
-    if (!lsplt::RegisterHook(device, inode, "madvise",
-                             reinterpret_cast<void*>(GuardedMadvise),
-                             &backup) ||
-            !lsplt::CommitHook() || backup == nullptr ||
-            backup == reinterpret_cast<void*>(GuardedMadvise)) {
-        NHK_LOGE("madvise guard: LSPlt hook failed for %s", kRuntimeName);
-        return false;
-    }
-    __atomic_store_n(&g_original_madvise, reinterpret_cast<MadviseFn>(backup),
-                     __ATOMIC_RELEASE);
-    NHK_LOGW("madvise guard installed: LSPlt GOT chain on %s",
-               kRuntimeName);
+    NHK_LOGW("madvise guard installed: LSPlt GOT chain on %zu slot(s)", hooked);
     return true;
 }
 
 bool InstallMadviseHook() {
     if (InstallLspltMadviseHook()) return true;
+    // The runtime image is not mapped yet.  Falling back to the inline guard
+    // here would install a libc hook and make the state machine report
+    // success, which would block the LSPlt GOT chain for the rest of the
+    // process lifetime.  Leave the guard uninstalled instead; the next
+    // library-load callback retries while the runtime is still missing.
+    if (__atomic_load_n(&g_runtime_missing, __ATOMIC_ACQUIRE) != 0u) {
+        return false;
+    }
     return InstallInlineMadviseFallback();
 }
 

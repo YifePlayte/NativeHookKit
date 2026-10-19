@@ -27,9 +27,12 @@ src/
 
 The page guard is an external LSPlt (`org.lsposed.lsplt:lsplt-standalone`)
 dependency. The preferred backend is a GOT chain: every module installs its
-own guard on the runtime image's `madvise` slot and calls the backup returned
-by LSPlt. An inline fallback exists only for backward compatibility and logs
-when it is used; do not add a new inline `madvise` hook.
+own guard on each mapped `madvise` importer that can drop the patched image and
+calls the backup returned by LSPlt. The candidate images are
+`libhyper_os_flutter.so` (7751+ Dart runtime), `libmemmap2.dylib.so` and
+`libnix.dylib.so` (the Rust mmap crates the 7748 launcher uses). An inline
+fallback exists only for backward compatibility and logs when it is used; do
+not add a new inline `madvise` hook.
 
 ## Use from a module
 
