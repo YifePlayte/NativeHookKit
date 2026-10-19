@@ -17,7 +17,6 @@ add_library(nhk STATIC
     src/dart_image.cpp
     src/page_guard.cpp
     src/config.cpp
-    src/feature.cpp
     src/log.cpp
 )
 

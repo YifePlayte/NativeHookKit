@@ -15,7 +15,6 @@ include/nhk/module.h       thin module descriptor
 include/nhk/dart_image.h   image lookup, pattern scan, verified patches
 include/nhk/page_guard.h   LSPosed backend + LSPlt madvise GOT guard
 include/nhk/config.h       native-config transport and feature gating
-include/nhk/feature.h      feature table and bit-gated dispatch
 include/nhk/log.h          tag-settable logging
 src/entry.cpp              shared native_init / library callback
 src/*.cpp

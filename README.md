@@ -16,14 +16,12 @@ include/nhk/
   dart_image.h      ELF image lookup, pattern scanning, verified code patches
   page_guard.h      LSPosed native API wrapper + LSPlt madvise GOT guard
   config.h          clipboard native-config transport (module descriptor)
-  feature.h         feature table and bit-gated dispatch
   log.h             module-settable log tag
 src/
   entry.cpp         shared native_init + library callback forwarding
   dart_image.cpp
   page_guard.cpp
   config.cpp
-  feature.cpp
   log.cpp
 ```
 
