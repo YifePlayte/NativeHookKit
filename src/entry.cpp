@@ -29,14 +29,28 @@ void ReplayLoadedLibrary(const char* name) {
     dlclose(handle);
 }
 
-// The runtime images every NativeHookKit consumer needs for guard and feature
-// discovery.  Modules that need more images replay them in OnNativeInit.
-constexpr const char* kPreloadedImages[] = {
+// The runtime image every HYOS app maps before LSPosed injects the module.
+constexpr const char* kDefaultPreloadedImages[] = {
     "libhyper_os_flutter.so",
 };
 
 void ReplayPreloadedImages() {
-    for (const char* name : kPreloadedImages) ReplayLoadedLibrary(name);
+    const nhk::ModuleDescriptor& descriptor = nhk::GetModuleDescriptor();
+    const nhk::RuntimeImages* overrides = descriptor.images;
+    const char* const* images = nullptr;
+    size_t count = 0u;
+    if (overrides != nullptr) {
+        images = overrides->preloaded;
+        count = overrides->preloaded_count;
+    }
+    if (images == nullptr || count == 0u) {
+        images = kDefaultPreloadedImages;
+        count = sizeof(kDefaultPreloadedImages) /
+                sizeof(kDefaultPreloadedImages[0]);
+    }
+    for (size_t index = 0u; index < count; ++index) {
+        ReplayLoadedLibrary(images[index]);
+    }
 }
 
 }  // namespace
@@ -61,3 +75,4 @@ nhk::NativeOnModuleLoaded native_init(const nhk::NativeAPIEntries* entries) {
 }
 
 }  // extern "C"
+

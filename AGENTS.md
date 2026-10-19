@@ -27,7 +27,9 @@ src/*.cpp
 - Link `nhk` with `--whole-archive` so the shared `native_init` is retained.
 - The app must depend on `org.lsposed.lsplt:lsplt-standalone` and enable prefab.
 - Implement `nhk::GetModuleDescriptor()` with `log_tag`, `on_native_init` and
-  `on_library_loaded`.
+  `on_library_loaded` through `nhk::MakeDescriptor()`.  A module whose runtime
+  or `madvise` importers differ from the XYRE defaults passes a
+  `nhk::RuntimeImages` pointer; no kit edit is needed.
 - The module keeps its own process checks, targets, native config and feature
   hook files.
 

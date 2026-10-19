@@ -124,3 +124,18 @@ The shared entry is intentionally thin.  Target lists, process predicates,
 feature tables, config keys and library-specific callbacks remain in the
 concrete module; the kit does not try to own desktop/weather/gallery policy.
 Kotlin endpoints are also module-local.
+
+## Descriptor extension points
+
+`nhk::ModuleDescriptor` keeps the shared entry module-neutral.  Two optional
+lists let a module adapt the kit without editing it:
+
+- `RuntimeImages::preloaded`: images already mapped when `native_init` runs;
+  replayed through `on_library_loaded`.  Defaults to `libhyper_os_flutter.so`.
+- `RuntimeImages::madvise`: images whose `madvise` PLT slot the guard chains
+  onto.  Defaults to the HYOS runtime and the Rust mmap crates.
+
+Pass a `RuntimeImages` pointer to `MakeDescriptor` only when the target app
+differs from the XYRE defaults; module definitions with the defaults stay a
+single `MakeDescriptor("Tag", OnNativeInit, OnLibraryLoaded)` line.  The lists
+must stay valid for the process lifetime.

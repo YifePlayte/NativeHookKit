@@ -3,6 +3,7 @@
 #include "nhk/page_guard.h"
 
 #include "nhk/log.h"
+#include "nhk/module.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -150,12 +151,14 @@ int GuardedMadviseWith(MadviseFn original, void* address, size_t length,
 // the Rust mmap crates.  Hook every candidate that is really mapped so the
 // guard follows whichever runtime the launcher build uses.  Each slot keeps
 // its own LSPlt backup because a sibling module may have hooked the same slot.
-constexpr size_t kMaxGuardSlots = 4u;
-constexpr const char* kMadviseGuardCandidates[kMaxGuardSlots] = {
+constexpr size_t kMaxGuardSlots = 8u;
+// The images every HYOS app uses for memory cleanup.
+constexpr const char* kDefaultMadviseImages[] = {
     "libhyper_os_flutter.so",
     "libmemmap2.dylib.so",
     "libnix.dylib.so",
 };
+
 
 MadviseFn g_slot_backup[kMaxGuardSlots]{};
 
@@ -173,6 +176,10 @@ constexpr GuardFn kSlotWrappers[kMaxGuardSlots] = {
     &GuardedMadviseSlot<1>,
     &GuardedMadviseSlot<2>,
     &GuardedMadviseSlot<3>,
+    &GuardedMadviseSlot<4>,
+    &GuardedMadviseSlot<5>,
+    &GuardedMadviseSlot<6>,
+    &GuardedMadviseSlot<7>,
 };
 
 int GuardedMadviseInline(void* address, size_t length, int advice) {
@@ -270,10 +277,25 @@ bool FindRuntimeIdentity(const char* name, dev_t* device, ino_t* inode) {
 }
 
 bool InstallLspltMadviseHook() {
+    const nhk::ModuleDescriptor& descriptor = nhk::GetModuleDescriptor();
+    const nhk::RuntimeImages* overrides = descriptor.images;
+    const char* const* images = nullptr;
+    size_t image_count = 0u;
+    if (overrides != nullptr) {
+        images = overrides->madvise;
+        image_count = overrides->madvise_count;
+    }
+    if (images == nullptr || image_count == 0u) {
+        images = kDefaultMadviseImages;
+        image_count = sizeof(kDefaultMadviseImages) /
+                      sizeof(kDefaultMadviseImages[0]);
+    }
+    if (image_count > kMaxGuardSlots) image_count = kMaxGuardSlots;
+
     size_t queued = 0u;
     bool candidate_present = false;
-    for (size_t slot = 0u; slot < kMaxGuardSlots; ++slot) {
-        const char* name = kMadviseGuardCandidates[slot];
+    for (size_t slot = 0u; slot < image_count; ++slot) {
+        const char* name = images[slot];
         dev_t device = 0;
         ino_t inode = 0;
         if (name == nullptr || !FindRuntimeIdentity(name, &device, &inode)) {
