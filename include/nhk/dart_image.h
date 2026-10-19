@@ -30,6 +30,14 @@ struct Image {
 bool AcquireImage(const char* library_name, Image* image);
 bool AcquireImageAtBase(uintptr_t base, Image* image);
 
+// Verifies that `handle` is a Dart AOT image whose mapping path is accepted by
+// `accept_path`, then acquires the ELF image at the verified load bias.
+// `accept_path` is required and must fail closed: it decides which APK forms
+// are trusted in this process.
+using DartImagePathPredicate = bool (*)(const char* path);
+bool AcquireVerifiedDartImage(void* handle, DartImagePathPredicate accept_path,
+                              Image* image);
+
 const Segment* FindSegment(const Image& image, uintptr_t address,
                            uint32_t required_flags);
 bool RangeInExecutableSegment(const Image& image, uintptr_t address,

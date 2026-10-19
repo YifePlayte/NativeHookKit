@@ -1,30 +1,25 @@
-// NativeHookKit: LSPosed native backend and LSPlt madvise guard.
-
-#include "nhk/page_guard.h"
+#include "nhk/madvise_guard.h"
 
 #include "nhk/log.h"
 #include "nhk/module.h"
-
-#include <stdio.h>
-#include <stdlib.h>
-#include <sys/sysmacros.h>
-#include <vector>
+#include "nhk/native_api.h"
+#include "nhk/text.h"
 
 #include <lsplt.hpp>
 
 #include <dlfcn.h>
 #include <errno.h>
 #include <inttypes.h>
-#include <link.h>
 #include <sched.h>
+#include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <sys/mman.h>
+#include <sys/sysmacros.h>
 #include <unistd.h>
 
 namespace nhk {
 namespace {
-
-const NativeAPIEntries* g_lsposed_api = nullptr;
 
 size_t PageSize() {
     static size_t value = 0u;
@@ -207,21 +202,10 @@ bool InstallInlineMadviseFallback() {
     return true;
 }
 
-// The XYRE runtime is the common caller image for app memory cleanup;
-// MiuiBackGestureHook uses the same image.  Hooking the same PLT slot means
-// both modules' protections are in one chain.
-//
 // Do not call lsplt::MapInfo::Scan() here.  That symbol changed from the old
 // no-argument ABI to Scan(std::string_view); using either overload directly
 // would make our module depend on which LSPlt copy won the soname race.  We
 // only need dev/inode, so parse /proc/self/maps ourselves.
-bool EndsWith(const char* value, const char* suffix) {
-    if (value == nullptr || suffix == nullptr) return false;
-    const size_t value_length = strlen(value);
-    const size_t suffix_length = strlen(suffix);
-    if (suffix_length > value_length) return false;
-    return strcmp(value + value_length - suffix_length, suffix) == 0;
-}
 
 bool FindRuntimeIdentity(const char* name, dev_t* device, ino_t* inode) {
     if (name == nullptr || device == nullptr || inode == nullptr) return false;
@@ -255,7 +239,7 @@ bool FindRuntimeIdentity(const char* name, dev_t* device, ino_t* inode) {
         if (path_length > 0u && path[path_length - 1u] == '\n') {
             path[path_length - 1u] = '\0';
         }
-        if (!EndsWith(path, name)) continue;
+        if (!text::EndsWith(path, name)) continue;
         const dev_t map_device = makedev(major, minor);
         const ino_t map_inode_value = static_cast<ino_t>(map_inode);
         if (found && (map_device != found_device ||
@@ -360,62 +344,7 @@ bool InstallMadviseHook() {
     return InstallInlineMadviseFallback();
 }
 
-struct FindLibraryRequest {
-    const char* name;
-    void* base;
-    size_t matches;
-};
-
-int FindLibraryCallback(dl_phdr_info* info, size_t, void* opaque) {
-    auto* request = static_cast<FindLibraryRequest*>(opaque);
-    const char* path = info->dlpi_name;
-    if (path == nullptr) return 0;
-
-    const char* basename = strrchr(path, '/');
-    basename = basename ? basename + 1 : path;
-
-    if (strcmp(basename, request->name) == 0 ||
-            strstr(path, request->name) != nullptr) {
-        request->base = reinterpret_cast<void*>(info->dlpi_addr);
-        request->matches++;
-    }
-    return 0;
-}
-
 }  // namespace
-
-bool InitializeHookBackend(const NativeAPIEntries* entries) {
-    if (entries == nullptr || entries->hookFunc == nullptr) {
-        NHK_LOGE("invalid LSPosed API entries");
-        return false;
-    }
-    g_lsposed_api = entries;
-    return true;
-}
-
-int InstallInlineHook(void* target, void* replacement, void** original) {
-    if (g_lsposed_api == nullptr || g_lsposed_api->hookFunc == nullptr ||
-            target == nullptr || replacement == nullptr || original == nullptr) {
-        return kHookFailed;
-    }
-    *original = nullptr;
-    if (g_lsposed_api->hookFunc(target, replacement, original) !=
-            kHookSuccess ||
-            *original == nullptr) {
-        return kHookFailed;
-    }
-    return kHookSuccess;
-}
-
-void* FindLibraryBase(const char* library_name) {
-    FindLibraryRequest request{};
-    request.name = library_name;
-    request.base = nullptr;
-    request.matches = 0;
-    dl_iterate_phdr(FindLibraryCallback, &request);
-    if (request.matches == 1) return request.base;
-    return nullptr;
-}
 
 bool EnsureMadviseGuard() {
     for (;;) {
@@ -468,5 +397,6 @@ bool ProtectHookRange(uintptr_t address, size_t size) {
     }
     return true;
 }
+
 
 }  // namespace nhk

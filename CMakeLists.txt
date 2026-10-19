@@ -15,7 +15,10 @@ find_package(lsplt REQUIRED CONFIG)
 add_library(nhk STATIC
     src/entry.cpp
     src/dart_image.cpp
-    src/page_guard.cpp
+    src/native_api.cpp
+    src/madvise_guard.cpp
+    src/process.cpp
+    src/text.cpp
     src/config.cpp
     src/log.cpp
 )
@@ -42,3 +45,10 @@ set_target_properties(nhk PROPERTIES
 )
 
 target_link_libraries(nhk PUBLIC log dl lsplt::lsplt)
+
+# Links a module target against the kit.  The shared native_init entry lives in
+# a static archive, so it must be retained with --whole-archive.
+function(nhk_link_module target)
+    target_link_libraries(${target} PRIVATE
+        -Wl,--whole-archive nhk -Wl,--no-whole-archive)
+endfunction()

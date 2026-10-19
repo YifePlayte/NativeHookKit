@@ -1,7 +1,7 @@
 #include "nhk/module.h"
 
 #include "nhk/log.h"
-#include "nhk/page_guard.h"
+#include "nhk/native_api.h"
 
 #include <dlfcn.h>
 

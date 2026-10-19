@@ -2,7 +2,8 @@
 #include "nhk/dart_image.h"
 
 #include "nhk/log.h"
-#include "nhk/page_guard.h"
+#include "nhk/madvise_guard.h"
+#include "nhk/text.h"
 
 #include <dlfcn.h>
 #include <elf.h>
@@ -15,24 +16,6 @@
 
 namespace nhk::dart {
 namespace {
-
-bool StringsEqual(const char* left, const char* right) {
-    if (left == nullptr || right == nullptr) return false;
-    size_t index = 0u;
-    while (left[index] != '\0' && right[index] != '\0') {
-        if (left[index] != right[index]) return false;
-        ++index;
-    }
-    return left[index] == right[index];
-}
-
-bool EndsWith(const char* value, const char* suffix) {
-    if (value == nullptr || suffix == nullptr) return false;
-    const size_t value_length = strlen(value);
-    const size_t suffix_length = strlen(suffix);
-    if (suffix_length > value_length) return false;
-    return StringsEqual(value + value_length - suffix_length, suffix);
-}
 
 size_t PageSize() {
     static size_t value = 0u;
@@ -55,7 +38,7 @@ struct FindImageRequest {
 int FindImageCallback(dl_phdr_info* info, size_t, void* opaque) {
     auto* request = static_cast<FindImageRequest*>(opaque);
     if (info->dlpi_name == nullptr || request->image->found) return 0;
-    if (!EndsWith(info->dlpi_name, request->library_name)) return 0;
+    if (!text::EndsWith(info->dlpi_name, request->library_name)) return 0;
 
     request->image->bias = static_cast<uintptr_t>(info->dlpi_addr);
     for (size_t index = 0u;
@@ -219,6 +202,41 @@ bool PatchCode(uintptr_t address, const uint32_t* words, size_t count) {
                        address + index * sizeof(uint32_t));
             return false;
         }
+    }
+    return true;
+}
+
+namespace {
+
+constexpr char kDartSnapshotSymbol[] = "_kDartIsolateSnapshotInstructions";
+
+}  // namespace
+
+bool AcquireVerifiedDartImage(void* handle, DartImagePathPredicate accept_path,
+                              Image* image) {
+    if (handle == nullptr || accept_path == nullptr || image == nullptr) {
+        return false;
+    }
+    void* snapshot = dlsym(handle, kDartSnapshotSymbol);
+    if (snapshot == nullptr) {
+        NHK_LOGW("dart image rejected: missing symbol %s", kDartSnapshotSymbol);
+        return false;
+    }
+    Dl_info info{};
+    if (dladdr(snapshot, &info) == 0 || info.dli_fbase == nullptr) {
+        NHK_LOGW("dart image rejected: dladdr failed");
+        return false;
+    }
+    if (!accept_path(info.dli_fname)) {
+        NHK_LOGW("dart image rejected: unexpected path %s",
+                 info.dli_fname != nullptr ? info.dli_fname : "<null>");
+        return false;
+    }
+    if (!AcquireImageAtBase(reinterpret_cast<uintptr_t>(info.dli_fbase),
+                            image)) {
+        NHK_LOGW("dart image rejected: no ELF image at base %p",
+                 info.dli_fbase);
+        return false;
     }
     return true;
 }

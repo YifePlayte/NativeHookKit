@@ -12,15 +12,21 @@ hooks.
 
 ```text
 include/nhk/
-  module.h          thin module descriptor for the shared native entry
-  dart_image.h      ELF image lookup, pattern scanning, verified code patches
-  page_guard.h      LSPosed native API wrapper + LSPlt madvise GOT guard
-  config.h          clipboard native-config transport (module descriptor)
+  module.h          shared entry descriptor + optional RuntimeImages
+  dart_image.h      image lookup, verified Dart image, pattern patches
+  native_api.h      LSPosed hook backend
+  madvise_guard.h   cooperative madvise GOT guard
+  process.h         cmdline / executable identity helpers
+  text.h            string helpers
+  config.h          clipboard native-config transport
   log.h             module-settable log tag
 src/
-  entry.cpp         shared native_init + library callback forwarding
+  entry.cpp         shared native_init + preloaded image replay
   dart_image.cpp
-  page_guard.cpp
+  native_api.cpp
+  madvise_guard.cpp
+  process.cpp
+  text.cpp
   config.cpp
   log.cpp
 ```
@@ -33,6 +39,27 @@ calls the backup returned by LSPlt. The candidate images are
 `libnix.dylib.so` (the Rust mmap crates the 7748 launcher uses). An inline
 fallback exists only for backward compatibility and logs when it is used; do
 not add a new inline `madvise` hook.
+
+## Target apps
+
+The kit carries no app names.  A module supplies the Dart image path policy
+through `DartImagePathPredicate`.  XYRE apps map their Dart payload in two
+forms:
+
+- APK-internal: `<apk>!/lib/arm64-v8a/libapp.so` (launcher)
+- extracted:    `/data/app/.../lib/arm64/libapp.so` (weather, gallery)
+
+Accept both in the module predicate.  The runtime image is normally
+`libhyper_os_flutter.so`; the launcher uses the system copy or the one inside
+its APK, weather carries its own, gallery uses the system copy.  The guard
+matches by path suffix, so if a process maps two copies, pass a longer suffix
+(for example `/lib/arm64/libhyper_os_flutter.so`) in
+`RuntimeImages::madvise` to pin the one in use.
+
+Verified on the same ROM: launcher 8.01.02.7722, 7726, 7748, 7751, 8565 and
+8583; weather and gallery (Dart image exports the snapshot symbol, guard
+installs on the runtime and Rust mmap crates).
+
 
 ## Use from a module
 
