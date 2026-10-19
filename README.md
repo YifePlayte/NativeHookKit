@@ -166,3 +166,7 @@ Pass a `RuntimeImages` pointer to `MakeDescriptor` only when the target app
 differs from the XYRE defaults; module definitions with the defaults stay a
 single `MakeDescriptor("Tag", OnNativeInit, OnLibraryLoaded)` line.  The lists
 must stay valid for the process lifetime.
+
+## License
+
+GPL-3.0. See [LICENSE](LICENSE).
